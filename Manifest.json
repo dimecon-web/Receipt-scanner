@@ -1,0 +1,9 @@
+{
+  "name": "Scanneur de Justificatifs",
+  "short_name": "Scan Justif",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#4F46E5",
+  "description": "Application de scan de justificatifs pour notes de frais"
+}
