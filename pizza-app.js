@@ -1,16 +1,21 @@
 const { useState, useMemo } = React;
 
-// ─── Calcul levure (règle Q10 biologique) ────────────────────────────────────
-// La vitesse de fermentation double tous les 10 °C (Q10 = 2).
-// Base : 2 g de levure fraîche par kg de farine à 20 °C pour 8 h.
+// ─── Calcul levure directe (règle Q10 biologique) ─────────────────────────────
 function levureFraicheParKg(temperature, heures) {
   const facteurTemp = Math.pow(2, (temperature - 20) / 10);
   const facteurTemps = heures / 8;
   return Math.min(Math.max(2 / (facteurTemp * facteurTemps), 0.05), 30);
 }
 
+// ─── Calcul levure pré-ferment (règle Q10) ────────────────────────────────
+function levurePreFerment(temperature, heures, baseGParKg, tempRef, heuresRef) {
+  const facteurTemp = Math.pow(2, (temperature - tempRef) / 10);
+  const facteurTemps = heures / heuresRef;
+  return Math.min(Math.max(baseGParKg / (facteurTemp * facteurTemps), 0.05), 50);
+}
+
 // ─── Calcul ingrédients ──────────────────────────────────────────────────────
-function calculer({ nbPizzas, poidsPaton, hydratation, temperature, heures, fermentation, preFermentPct }) {
+function calculer({ nbPizzas, poidsPaton, hydratation, temperature, heures, fermentation, preFermentPct, tempPreFerment, heuresPreFerment }) {
   const totalPate = nbPizzas * poidsPaton;
   const fracEau   = hydratation / 100;
   const fracSel   = 0.028;
@@ -29,14 +34,14 @@ function calculer({ nbPizzas, poidsPaton, hydratation, temperature, heures, ferm
     };
   }
 
-  // Biga & Poolish : poids levure négligeable dans la masse totale
   const farine    = totalPate / (1 + fracEau + fracSel);
   const eauTotale = farine * fracEau;
   const sel       = +(farine * fracSel).toFixed(1);
 
   if (fermentation === 'biga') {
     const BIGA_HYD = 0.52;
-    const BIGA_LEV = 0.005;
+    const bigaLevGParKg = levurePreFerment(tempPreFerment, heuresPreFerment, 5, 18, 18);
+    const BIGA_LEV = bigaLevGParKg / 1000;
     const bigaFarine = Math.round(farine * preFermentPct / 100);
     const bigaEau    = Math.round(bigaFarine * BIGA_HYD);
     const bigaLevF   = +(bigaFarine * BIGA_LEV).toFixed(1);
@@ -52,8 +57,8 @@ function calculer({ nbPizzas, poidsPaton, hydratation, temperature, heures, ferm
     };
   }
 
-  // Poolish : 100 % hydratation, 0,2 % levure fraîche
-  const POOL_LEV = 0.002;
+  const poolLevGParKg = levurePreFerment(tempPreFerment, heuresPreFerment, 2, 20, 12);
+  const POOL_LEV = poolLevGParKg / 1000;
   const poolFarine = Math.round(farine * preFermentPct / 100);
   const poolEau    = poolFarine;
   const poolLevF   = +(poolFarine * POOL_LEV).toFixed(2);
@@ -87,14 +92,12 @@ function conseil({ temperature, heures, hydratation, fermentation, frigo }) {
 }
 
 // ─── Instructions ─────────────────────────────────────────────────────────────
-function etapes({ res, nbPizzas, poidsPaton, heures, temperature, frigo, fermentation }) {
+function etapes({ res, nbPizzas, poidsPaton, heures, temperature, frigo, fermentation, tempPreFerment, heuresPreFerment }) {
   const sortirFrigo = frigo
     ? ['Sortir la pâte du frigo 1–2 h avant de l\'étaler pour qu\'elle revienne à température ambiante.']
     : [];
 
   if (res.type === 'biga') {
-    const bigaTempLabel = frigo ? '6–8 °C (bas du frigo)' : '16–18 °C (cave ou cellier)';
-    const bigaTempsLabel = frigo ? '24–48 h' : '16–24 h';
     return [
       {
         titre: '① Préparer la biga (J−1)',
@@ -102,7 +105,7 @@ function etapes({ res, nbPizzas, poidsPaton, heures, temperature, frigo, ferment
         steps: [
           `Mélanger ${res.bigaFarine} g de farine + ${res.bigaEau} ml d'eau froide. La pâte est très grumeleuse, ne pas trop travailler.`,
           `Ajouter ${res.bigaLevF} g de levure fraîche (ou ${res.bigaLevS} g sèche) et intégrer grossièrement à la main.`,
-          `Couvrir de film alimentaire et laisser fermenter ${bigaTempsLabel} à ${bigaTempLabel}.`,
+          `Couvrir de film alimentaire et laisser fermenter ${heuresPreFerment} h à ${tempPreFerment} °C.`,
           '✅ Prête quand elle sent légèrement l\'alcool, présente des bulles et a presque doublé de volume.',
         ],
       },
@@ -110,7 +113,6 @@ function etapes({ res, nbPizzas, poidsPaton, heures, temperature, frigo, ferment
         titre: '② Pâte finale',
         couleur: 'text-gray-700',
         steps: [
-          ...(frigo ? ['Sortir la biga du frigo 30 min avant de démarrer la pâte finale.'] : []),
           `Déposer la biga dans le bol. Ajouter les ${res.finalEau} ml d'eau et émietter la biga dedans (2–3 min).`,
           `Incorporer progressivement les ${res.finalFarine} g de farine restante. Pétrir 5 min.`,
           `Ajouter les ${res.sel} g de sel et pétrir encore 8–10 min. Pas de levure supplémentaire.`,
@@ -126,15 +128,13 @@ function etapes({ res, nbPizzas, poidsPaton, heures, temperature, frigo, ferment
   }
 
   if (res.type === 'poolish') {
-    const poolTempLabel = frigo ? '6–8 °C (bas du frigo)' : '18–22 °C (température ambiante)';
-    const poolTempsLabel = frigo ? '24–36 h' : '12–16 h';
     return [
       {
         titre: '① Préparer la poolish (J−1)',
         couleur: 'text-blue-700',
         steps: [
           `Mélanger ${res.poolFarine} g de farine + ${res.poolEau} ml d'eau tiède + ${res.poolLevF} g de levure fraîche (ou ${res.poolLevS} g sèche).`,
-          `Couvrir et laisser fermenter ${poolTempsLabel} à ${poolTempLabel}.`,
+          `Couvrir et laisser fermenter ${heuresPreFerment} h à ${tempPreFerment} °C.`,
           '✅ Prête quand la surface est bullée et commence légèrement à retomber au centre.',
         ],
       },
@@ -142,7 +142,6 @@ function etapes({ res, nbPizzas, poidsPaton, heures, temperature, frigo, ferment
         titre: '② Pâte finale',
         couleur: 'text-gray-700',
         steps: [
-          ...(frigo ? ['Sortir la poolish du frigo 30 min avant.'] : []),
           `Verser la poolish dans le bol. Ajouter les ${res.finalEau} ml d'eau et mélanger brièvement.`,
           `Incorporer les ${res.finalFarine} g de farine restante. Pétrir à vitesse lente 3 min.`,
           `Ajouter les ${res.sel} g de sel et pétrir encore 8–10 min. Pas de levure supplémentaire.`,
@@ -157,7 +156,6 @@ function etapes({ res, nbPizzas, poidsPaton, heures, temperature, frigo, ferment
     ];
   }
 
-  // Directe
   return [
     {
       titre: 'Méthode directe',
@@ -242,8 +240,8 @@ function ToggleYeast({ valeur, onChange, bgCls }) {
   );
 }
 
-function SectionMethode({ res, nbPizzas, poidsPaton, heures, temperature, frigo, fermentation }) {
-  const groupes = etapes({ res, nbPizzas, poidsPaton, heures, temperature, frigo, fermentation });
+function SectionMethode({ res, nbPizzas, poidsPaton, heures, temperature, frigo, fermentation, tempPreFerment, heuresPreFerment }) {
+  const groupes = etapes({ res, nbPizzas, poidsPaton, heures, temperature, frigo, fermentation, tempPreFerment, heuresPreFerment });
   return (
     <div className="bg-white rounded-3xl shadow-sm p-5 space-y-5">
       <h2 className="text-base font-bold text-gray-500 uppercase tracking-widest">Instructions</h2>
@@ -268,23 +266,29 @@ function SectionMethode({ res, nbPizzas, poidsPaton, heures, temperature, frigo,
 
 // ─── App principale ───────────────────────────────────────────────────────────
 function PizzaCalculator() {
-  const [nbPizzas,      setNbPizzas]      = useState(4);
-  const [poidsPaton,    setPoidsPaton]    = useState(250);
-  const [hydratation,   setHydratation]   = useState(62);
-  const [temperature,   setTemperature]   = useState(22);
-  const [heures,        setHeures]        = useState(8);
-  const [fermentation,  setFermentation]  = useState('direct');
-  const [preFermentPct, setPreFermentPct] = useState(40);
-  const [frigo,         setFrigo]         = useState(false);
-  const [typeYeast,     setTypeYeast]     = useState('seche');
+  const [nbPizzas,         setNbPizzas]         = useState(4);
+  const [poidsPaton,       setPoidsPaton]       = useState(250);
+  const [hydratation,      setHydratation]      = useState(62);
+  const [temperature,      setTemperature]      = useState(22);
+  const [heures,           setHeures]           = useState(8);
+  const [fermentation,     setFermentation]     = useState('direct');
+  const [preFermentPct,    setPreFermentPct]    = useState(40);
+  const [tempPreFerment,   setTempPreFerment]   = useState(18);
+  const [heuresPreFerment, setHeuresPreFerment] = useState(18);
+  const [frigo,            setFrigo]            = useState(false);
+  const [typeYeast,        setTypeYeast]        = useState('seche');
 
   const tempEffective = frigo ? 4 : temperature;
-  const heuresMax  = frigo ? 120 : 72;
+  const heuresMax     = frigo ? 120 : 72;
   const heuresClamped = Math.min(heures, heuresMax);
 
+  const heuresPreFermentMin  = fermentation === 'biga' ? 8  : 4;
+  const heuresPreFermentMax  = fermentation === 'biga' ? 96 : 48;
+  const heuresPreFermentStep = fermentation === 'biga' ? 2  : 1;
+
   const res = useMemo(
-    () => calculer({ nbPizzas, poidsPaton, hydratation, temperature: tempEffective, heures: heuresClamped, fermentation, preFermentPct }),
-    [nbPizzas, poidsPaton, hydratation, tempEffective, heuresClamped, fermentation, preFermentPct]
+    () => calculer({ nbPizzas, poidsPaton, hydratation, temperature: tempEffective, heures: heuresClamped, fermentation, preFermentPct, tempPreFerment, heuresPreFerment }),
+    [nbPizzas, poidsPaton, hydratation, tempEffective, heuresClamped, fermentation, preFermentPct, tempPreFerment, heuresPreFerment]
   );
 
   const tip = useMemo(
@@ -294,8 +298,8 @@ function PizzaCalculator() {
 
   function choisirFermentation(id) {
     setFermentation(id);
-    if (id === 'biga')    setPreFermentPct(40);
-    if (id === 'poolish') setPreFermentPct(30);
+    if (id === 'biga')    { setPreFermentPct(40); setTempPreFerment(18); setHeuresPreFerment(18); }
+    if (id === 'poolish') { setPreFermentPct(30); setTempPreFerment(20); setHeuresPreFerment(12); }
   }
 
   return (
@@ -324,37 +328,79 @@ function PizzaCalculator() {
               </button>
             ))}
           </div>
+
           {fermentation === 'direct' && (
             <p className="text-xs text-gray-500 text-center mb-4">Méthode classique en une seule étape. Idéale pour une pizza le jour même.</p>
           )}
-          {fermentation === 'biga' && (
-            <p className="text-xs text-gray-500 text-center mb-4">Pré-ferment italien ferme (52 % hydratation). Préparez-le 16–24 h à l'avance.</p>
-          )}
-          {fermentation === 'poolish' && (
-            <p className="text-xs text-gray-500 text-center mb-4">Pré-ferment liquide (100 % hydratation). Préparez-le 12–16 h à l'avance.</p>
-          )}
+
           {fermentation !== 'direct' && (
-            <div className="mb-4">
-              <div className="flex justify-between items-baseline mb-2">
-                <span className="font-semibold text-gray-700">
-                  Farine dans {fermentation === 'biga' ? 'la biga' : 'la poolish'}
-                </span>
-                <span className="text-3xl font-black text-orange-500">
-                  {preFermentPct}<span className="text-base font-semibold text-gray-400 ml-1">%</span>
-                </span>
-              </div>
-              <Curseur
-                min={20} max={fermentation === 'biga' ? 70 : 60} step={5}
-                valeur={preFermentPct} onChange={setPreFermentPct}
-                accent="accent-orange-500"
-                etiquetteMin="20 % (léger)"
-                etiquetteMax={fermentation === 'biga' ? '70 % (intense)' : '60 % (intense)'}
-              />
-              <p className="text-xs text-gray-400 mt-1 text-center">
-                {fermentation === 'biga' ? 'Recommandé : 40–60 %' : 'Recommandé : 25–40 %'}
+            <div className="bg-gray-50 rounded-2xl p-4 mb-4 space-y-5">
+              <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">
+                {fermentation === 'biga' ? '① Paramètres biga' : '① Paramètres poolish'}
               </p>
+              {fermentation === 'biga' && (
+                <p className="text-xs text-gray-500 -mt-2">Pré-ferment ferme (52 % hydratation). Préparez-le à l'avance.</p>
+              )}
+              {fermentation === 'poolish' && (
+                <p className="text-xs text-gray-500 -mt-2">Pré-ferment liquide (100 % hydratation). Préparez-le à l'avance.</p>
+              )}
+              <div>
+                <div className="flex justify-between items-baseline mb-2">
+                  <span className="font-semibold text-gray-700 text-sm">
+                    Farine dans {fermentation === 'biga' ? 'la biga' : 'la poolish'}
+                  </span>
+                  <span className="text-2xl font-black text-orange-500">
+                    {preFermentPct}<span className="text-sm font-semibold text-gray-400 ml-1">%</span>
+                  </span>
+                </div>
+                <Curseur
+                  min={20} max={fermentation === 'biga' ? 70 : 60} step={5}
+                  valeur={preFermentPct} onChange={setPreFermentPct}
+                  accent="accent-orange-500"
+                  etiquetteMin="20 %"
+                  etiquetteMax={fermentation === 'biga' ? '70 %' : '60 %'}
+                />
+                <p className="text-xs text-gray-400 mt-1 text-center">
+                  {fermentation === 'biga' ? 'Recommandé : 40–60 %' : 'Recommandé : 25–40 %'}
+                </p>
+              </div>
+              <div>
+                <div className="flex justify-between items-baseline mb-2">
+                  <span className="font-semibold text-gray-700 text-sm">
+                    Température {fermentation === 'biga' ? 'biga' : 'poolish'}
+                  </span>
+                  <span className="text-2xl font-black text-amber-600">
+                    {tempPreFerment}<span className="text-sm font-semibold text-gray-400 ml-1">°C</span>
+                  </span>
+                </div>
+                <Curseur
+                  min={4} max={24} step={1}
+                  valeur={tempPreFerment} onChange={setTempPreFerment}
+                  accent="accent-amber-500"
+                  etiquetteMin="4 °C (frigo)"
+                  etiquetteMax="24 °C"
+                />
+              </div>
+              <div>
+                <div className="flex justify-between items-baseline mb-2">
+                  <span className="font-semibold text-gray-700 text-sm">
+                    Durée {fermentation === 'biga' ? 'biga' : 'poolish'}
+                  </span>
+                  <span className="text-2xl font-black text-amber-600">
+                    {heuresPreFerment}<span className="text-sm font-semibold text-gray-400 ml-1">h</span>
+                  </span>
+                </div>
+                <Curseur
+                  min={heuresPreFermentMin} max={heuresPreFermentMax} step={heuresPreFermentStep}
+                  valeur={heuresPreFerment} onChange={setHeuresPreFerment}
+                  accent="accent-amber-500"
+                  etiquetteMin={`${heuresPreFermentMin} h`}
+                  etiquetteMax={`${heuresPreFermentMax} h`}
+                />
+              </div>
             </div>
           )}
+
           <button
             onClick={() => { setFrigo(f => !f); if (!frigo && heures < 12) setHeures(24); }}
             className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl border-2 transition-all ${
@@ -366,7 +412,9 @@ function PizzaCalculator() {
             <div className="flex items-center gap-2">
               <span className="text-xl">🧊</span>
               <div className="text-left">
-                <div className="font-bold text-sm">Fermentation longue au frigo</div>
+                <div className="font-bold text-sm">
+                  {fermentation !== 'direct' ? 'Pâte finale au frigo' : 'Fermentation longue au frigo'}
+                </div>
                 <div className="text-xs opacity-70">Température fixée à 4 °C — jusqu'à 120 h</div>
               </div>
             </div>
@@ -377,7 +425,9 @@ function PizzaCalculator() {
         </div>
 
         <div className="bg-white rounded-3xl shadow-sm p-5 space-y-6">
-          <h2 className="text-base font-bold text-gray-500 uppercase tracking-widest">Paramètres</h2>
+          <h2 className="text-base font-bold text-gray-500 uppercase tracking-widest">
+            {fermentation !== 'direct' ? '② Paramètres pâte finale' : 'Paramètres'}
+          </h2>
           <div>
             <div className="flex justify-between items-baseline mb-3">
               <span className="font-semibold text-gray-700">Nombre de pizzas</span>
@@ -416,7 +466,9 @@ function PizzaCalculator() {
           ) : (
             <div>
               <div className="flex justify-between items-baseline mb-2">
-                <span className="font-semibold text-gray-700">Température ambiante</span>
+                <span className="font-semibold text-gray-700">
+                  {fermentation !== 'direct' ? 'Température pâte finale' : 'Température ambiante'}
+                </span>
                 <span className="text-4xl font-black text-red-500">
                   {temperature}<span className="text-lg font-semibold text-gray-400 ml-1">°C</span>
                 </span>
@@ -428,7 +480,7 @@ function PizzaCalculator() {
           <div>
             <div className="flex justify-between items-baseline mb-2">
               <span className="font-semibold text-gray-700">
-                {fermentation !== 'direct' ? 'Repos final de la pâte' : 'Temps de repos'}
+                {fermentation !== 'direct' ? 'Repos pâte finale' : 'Temps de repos'}
               </span>
               <span className={`text-4xl font-black ${frigo ? 'text-cyan-600' : 'text-green-600'}`}>
                 {heuresClamped}<span className="text-lg font-semibold text-gray-400 ml-1">h</span>
@@ -474,7 +526,7 @@ function PizzaCalculator() {
               <div className="flex justify-between items-center">
                 <h2 className={`text-base font-bold uppercase tracking-widest ${frigo ? 'text-cyan-700' : 'text-orange-700'}`}>① Biga</h2>
                 <span className={`text-xs font-bold px-3 py-1 rounded-full ${frigo ? 'bg-cyan-200 text-cyan-700' : 'bg-orange-200 text-orange-700'}`}>
-                  {frigo ? 'Frigo J−2' : 'Préparer J−1'}
+                  {tempPreFerment} °C · {heuresPreFerment} h
                 </span>
               </div>
               <LigneIngredient emoji="🌾" label="Farine"     valeur={res.bigaFarine} unite="g"  bg="bg-white" text="text-amber-800" border="border-amber-200" />
@@ -515,7 +567,7 @@ function PizzaCalculator() {
               <div className="flex justify-between items-center">
                 <h2 className={`text-base font-bold uppercase tracking-widest ${frigo ? 'text-cyan-700' : 'text-blue-700'}`}>① Poolish</h2>
                 <span className={`text-xs font-bold px-3 py-1 rounded-full ${frigo ? 'bg-cyan-200 text-cyan-700' : 'bg-blue-200 text-blue-700'}`}>
-                  {frigo ? 'Frigo J−2' : 'Préparer J−1'}
+                  {tempPreFerment} °C · {heuresPreFerment} h
                 </span>
               </div>
               <LigneIngredient emoji="🌾" label="Farine"       valeur={res.poolFarine} unite="g"  bg="bg-white" text="text-amber-800" border="border-amber-200" />
@@ -562,6 +614,7 @@ function PizzaCalculator() {
           nbPizzas={nbPizzas} poidsPaton={poidsPaton}
           heures={heuresClamped} temperature={tempEffective}
           frigo={frigo} fermentation={fermentation}
+          tempPreFerment={tempPreFerment} heuresPreFerment={heuresPreFerment}
         />
 
         <div className="bg-white rounded-3xl shadow-sm p-5">
