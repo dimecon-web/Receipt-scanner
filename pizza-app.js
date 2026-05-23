@@ -1,56 +1,185 @@
 const { useState, useMemo } = React;
 
-// ─── Calcul de la levure (règle Q10 biologique) ───────────────────────────────
-// Base : 2 g de levure fraîche par kg de farine à 20°C pour 8 h de repos
-// La vitesse de fermentation double tous les 10°C (Q10 = 2)
+// ─── Calcul levure (règle Q10 biologique) ────────────────────────────────────
+// La vitesse de fermentation double tous les 10 °C (Q10 = 2).
+// Base : 2 g de levure fraîche par kg de farine à 20 °C pour 8 h.
 function levureFraicheParKg(temperature, heures) {
-  const base = 2.0;
   const facteurTemp = Math.pow(2, (temperature - 20) / 10);
   const facteurTemps = heures / 8;
-  const gParKg = base / (facteurTemp * facteurTemps);
-  return Math.min(Math.max(gParKg, 0.05), 30);
+  return Math.min(Math.max(2 / (facteurTemp * facteurTemps), 0.05), 30);
 }
 
-function calculerIngredients(nbPizzas, poidsPaton, hydratation, temperature, heures) {
+// ─── Calcul ingrédients ──────────────────────────────────────────────────────
+function calculer({ nbPizzas, poidsPaton, hydratation, temperature, heures, fermentation, preFermentPct }) {
   const totalPate = nbPizzas * poidsPaton;
-  const gLevFraiche = levureFraicheParKg(temperature, heures); // g par kg farine
-  const fracLev = gLevFraiche / 1000;
-  const fracEau = hydratation / 100;
-  const fracSel = 0.028; // 2.8 %
+  const fracEau   = hydratation / 100;
+  const fracSel   = 0.028;
 
-  const farine = totalPate / (1 + fracEau + fracSel + fracLev);
-  const eau    = farine * fracEau;
-  const sel    = farine * fracSel;
-  const levFraiche = farine * fracLev;
-  const levSeche   = levFraiche / 3;
+  if (fermentation === 'direct') {
+    const fracLev = levureFraicheParKg(temperature, heures) / 1000;
+    const farine  = totalPate / (1 + fracEau + fracSel + fracLev);
+    return {
+      type: 'direct',
+      totalPate: Math.round(totalPate),
+      farine:    Math.round(farine),
+      eau:       Math.round(farine * fracEau),
+      sel:       +(farine * fracSel).toFixed(1),
+      levFraiche: +(farine * fracLev).toFixed(1),
+      levSeche:   +(farine * fracLev / 3).toFixed(1),
+    };
+  }
 
+  // Biga & Poolish : poids levure négligeable dans la masse totale
+  const farine    = totalPate / (1 + fracEau + fracSel);
+  const eauTotale = farine * fracEau;
+  const sel       = +(farine * fracSel).toFixed(1);
+
+  if (fermentation === 'biga') {
+    const BIGA_HYD = 0.52;
+    const BIGA_LEV = 0.005; // 0,5 % levure fraîche dans la biga
+    const bigaFarine = Math.round(farine * preFermentPct / 100);
+    const bigaEau    = Math.round(bigaFarine * BIGA_HYD);
+    const bigaLevF   = +(bigaFarine * BIGA_LEV).toFixed(1);
+    const bigaLevS   = +(bigaFarine * BIGA_LEV / 3).toFixed(2);
+    return {
+      type: 'biga',
+      totalPate: Math.round(totalPate), farine: Math.round(farine),
+      bigaFarine, bigaEau, bigaLevF, bigaLevS,
+      bigaTotal:   bigaFarine + bigaEau,
+      finalFarine: Math.round(farine - bigaFarine),
+      finalEau:    Math.round(eauTotale - bigaEau),
+      sel,
+    };
+  }
+
+  // Poolish : 100 % hydratation, 0,2 % levure fraîche
+  const POOL_LEV = 0.002;
+  const poolFarine = Math.round(farine * preFermentPct / 100);
+  const poolEau    = poolFarine;
+  const poolLevF   = +(poolFarine * POOL_LEV).toFixed(2);
+  const poolLevS   = +(poolFarine * POOL_LEV / 3).toFixed(2);
   return {
-    farine:    Math.round(farine),
-    eau:       Math.round(eau),
-    sel:       Math.round(sel * 10) / 10,
-    levFraiche: Math.round(levFraiche * 10) / 10,
-    levSeche:   Math.round(levSeche * 10) / 10,
-    totalPate:  Math.round(totalPate),
+    type: 'poolish',
+    totalPate: Math.round(totalPate), farine: Math.round(farine),
+    poolFarine, poolEau, poolLevF, poolLevS,
+    poolTotal:   poolFarine + poolEau,
+    finalFarine: Math.round(farine - poolFarine),
+    finalEau:    Math.round(eauTotale - poolEau),
+    sel,
   };
 }
 
-function conseil(temperature, heures, hydratation) {
+// ─── Conseils ────────────────────────────────────────────────────────────────
+function conseil({ temperature, heures, hydratation, fermentation, frigo }) {
+  if (frigo)
+    return `Fermentation longue au froid : ressortez la pâte du frigo 1–2 h avant étalage pour qu'elle revienne à température ambiante.`;
+  if (fermentation === 'biga')
+    return "La biga apporte complexité aromatique, mie alvéolée et bord bien développé. Idéale avec une farine de force (W 260–320).";
+  if (fermentation === 'poolish')
+    return "La poolish donne une pâte très extensible avec une mie légère et ouverte. Parfaite pour les pizzas fines et croustillantes.";
   if (temperature >= 26 && heures <= 4)
-    return "Température élevée + temps court : surveillez bien la levée pour éviter la sur-fermentation.";
-  if (heures >= 48)
-    return "Longue fermentation à froid possible (frigo 4 °C). Les arômes seront exceptionnels.";
+    return "Température élevée + temps court : surveillez la levée pour éviter la sur-fermentation.";
   if (heures >= 24)
-    return "Fermentation lente = pâte plus savoureuse et plus digeste. Idéal !";
+    return "Fermentation lente = pâte plus savoureuse et digeste. Idéal !";
   if (hydratation >= 72)
     return "Pâte très hydratée : utilisez une farine de force (W 280+) et pliez plutôt que de pétrir.";
-  if (hydratation >= 65)
-    return "Bonne hydratation pour une belle alvéolaire et un bord croustillant.";
-  if (temperature < 18)
-    return "Température fraîche : levée lente et régulière, parfait pour la nuit.";
   return "Pâte napolitaine classique : étalez à la main pour conserver les bulles d'air.";
 }
 
-// ─── Composants ───────────────────────────────────────────────────────────────
+// ─── Instructions ─────────────────────────────────────────────────────────────
+function etapes({ res, nbPizzas, poidsPaton, heures, temperature, frigo, fermentation }) {
+  const tempLabel = frigo ? '4 °C (frigo)' : `${temperature} °C`;
+  const sortirFrigo = frigo
+    ? ['Sortir la pâte du frigo 1–2 h avant de l\'étaler pour qu\'elle revienne à température ambiante.']
+    : [];
+
+  if (res.type === 'biga') {
+    const bigaTempLabel = frigo ? '6–8 °C (bas du frigo)' : '16–18 °C (cave ou cellier)';
+    const bigaTempsLabel = frigo ? '24–48 h' : '16–24 h';
+    return [
+      {
+        titre: '① Préparer la biga (J−1)',
+        couleur: 'text-orange-700',
+        steps: [
+          `Mélanger ${res.bigaFarine} g de farine + ${res.bigaEau} ml d'eau froide. La pâte est très grumeleuse, ne pas trop travailler.`,
+          `Ajouter ${res.bigaLevF} g de levure fraîche (ou ${res.bigaLevS} g sèche) et intégrer grossièrement à la main.`,
+          `Couvrir de film alimentaire et laisser fermenter ${bigaTempsLabel} à ${bigaTempLabel}.`,
+          '✅ Prête quand elle sent légèrement l\'alcool, présente des bulles et a presque doublé de volume.',
+        ],
+      },
+      {
+        titre: '② Pâte finale',
+        couleur: 'text-gray-700',
+        steps: [
+          ...(frigo ? ['Sortir la biga du frigo 30 min avant de démarrer la pâte finale.'] : []),
+          `Déposer la biga dans le bol. Ajouter les ${res.finalEau} ml d'eau et émietter la biga dedans (2–3 min).`,
+          `Incorporer progressivement les ${res.finalFarine} g de farine restante. Pétrir 5 min.`,
+          `Ajouter les ${res.sel} g de sel et pétrir encore 8–10 min. Pas de levure supplémentaire.`,
+          frigo
+            ? `Couvrir et placer au frigo (4 °C) pour ${heures} h.`
+            : `Couvrir et laisser reposer ${heures} h à ${temperature} °C.`,
+          ...sortirFrigo,
+          `Diviser en ${nbPizzas} pâton(s) de ${poidsPaton} g, bouler et laisser pointer 30–60 min à température ambiante.`,
+          'Étaler à la main en partant du centre. Garnir et cuire à four très chaud (250–300 °C).',
+        ],
+      },
+    ];
+  }
+
+  if (res.type === 'poolish') {
+    const poolTempLabel = frigo ? '6–8 °C (bas du frigo)' : '18–22 °C (température ambiante)';
+    const poolTempsLabel = frigo ? '24–36 h' : '12–16 h';
+    return [
+      {
+        titre: '① Préparer la poolish (J−1)',
+        couleur: 'text-blue-700',
+        steps: [
+          `Mélanger ${res.poolFarine} g de farine + ${res.poolEau} ml d'eau tiède + ${res.poolLevF} g de levure fraîche (ou ${res.poolLevS} g sèche).`,
+          `Couvrir et laisser fermenter ${poolTempsLabel} à ${poolTempLabel}.`,
+          '✅ Prête quand la surface est bullée et commence légèrement à retomber au centre.',
+        ],
+      },
+      {
+        titre: '② Pâte finale',
+        couleur: 'text-gray-700',
+        steps: [
+          ...(frigo ? ['Sortir la poolish du frigo 30 min avant.'] : []),
+          `Verser la poolish dans le bol. Ajouter les ${res.finalEau} ml d'eau et mélanger brièvement.`,
+          `Incorporer les ${res.finalFarine} g de farine restante. Pétrir à vitesse lente 3 min.`,
+          `Ajouter les ${res.sel} g de sel et pétrir encore 8–10 min. Pas de levure supplémentaire.`,
+          frigo
+            ? `Couvrir et placer au frigo (4 °C) pour ${heures} h.`
+            : `Couvrir et laisser reposer ${heures} h à ${temperature} °C.`,
+          ...sortirFrigo,
+          `Diviser en ${nbPizzas} pâton(s) de ${poidsPaton} g, bouler délicatement et laisser pointer 30–60 min.`,
+          'Étaler délicatement. La mie sera ouverte et légère.',
+        ],
+      },
+    ];
+  }
+
+  // Directe
+  return [
+    {
+      titre: 'Méthode directe',
+      couleur: 'text-gray-700',
+      steps: [
+        'Dissoudre la levure dans l\'eau tiède (max 35 °C).',
+        'Mélanger la farine et le sel dans un grand bol.',
+        'Verser l\'eau progressivement et pétrir 10–12 min.',
+        frigo
+          ? `Couvrir et placer au frigo (4 °C) pour ${heures} h.`
+          : `Couvrir et laisser reposer ${heures} h à ${temperature} °C.`,
+        ...sortirFrigo,
+        `Diviser en ${nbPizzas} pâton(s) de ${poidsPaton} g, bouler et pointer 30 min à température ambiante.`,
+        'Étaler à la main en partant du centre.',
+        'Garnir et cuire au four le plus chaud possible.',
+      ],
+    },
+  ];
+}
+
+// ─── Composants UI ────────────────────────────────────────────────────────────
 
 function LigneIngredient({ emoji, label, valeur, unite, bg, text, border }) {
   return (
@@ -67,95 +196,213 @@ function LigneIngredient({ emoji, label, valeur, unite, bg, text, border }) {
   );
 }
 
-function Curseur({ min, max, step, valeur, onChange, couleurClass, etiquetteMin, etiquetteMax }) {
+function Curseur({ min, max, step, valeur, onChange, accent, etiquetteMin, etiquetteMax }) {
+  const pct = ((valeur - min) / (max - min)) * 100;
   return (
     <div>
       <input
-        type="range"
-        min={min} max={max} step={step}
-        value={valeur}
+        type="range" min={min} max={max} step={step} value={valeur}
         onChange={e => onChange(Number(e.target.value))}
-        className={`w-full ${couleurClass}`}
-        style={{ background: `linear-gradient(to right, currentColor ${((valeur - min) / (max - min)) * 100}%, #e5e7eb ${((valeur - min) / (max - min)) * 100}%)` }}
+        className={`w-full ${accent}`}
+        style={{ background: `linear-gradient(to right, currentColor ${pct}%, #e5e7eb ${pct}%)` }}
       />
       <div className="flex justify-between text-xs text-gray-400 mt-1">
-        <span>{etiquetteMin}</span>
-        <span>{etiquetteMax}</span>
+        <span>{etiquetteMin}</span><span>{etiquetteMax}</span>
       </div>
     </div>
   );
 }
 
-function BoutonStepperNb({ valeur, setValeur, min, max }) {
+function StepperPizzas({ valeur, setValeur }) {
+  const pct = ((valeur - 1) / 19) * 100;
   return (
     <div className="flex items-center gap-3">
-      <button
-        onClick={() => setValeur(v => Math.max(min, v - 1))}
-        className="w-11 h-11 rounded-full bg-orange-100 text-orange-600 text-2xl font-bold flex items-center justify-center active:bg-orange-200"
-      >−</button>
-      <input
-        type="range" min={min} max={max} value={valeur}
+      <button onClick={() => setValeur(v => Math.max(1, v - 1))}
+        className="w-11 h-11 rounded-full bg-orange-100 text-orange-600 text-2xl font-bold flex items-center justify-center active:bg-orange-200">−</button>
+      <input type="range" min={1} max={20} value={valeur}
         onChange={e => setValeur(Number(e.target.value))}
-        className="flex-1"
-        style={{
-          background: `linear-gradient(to right, #f97316 ${((valeur - min) / (max - min)) * 100}%, #e5e7eb ${((valeur - min) / (max - min)) * 100}%)`,
-          accentColor: '#f97316'
-        }}
+        className="flex-1 accent-orange-500"
+        style={{ background: `linear-gradient(to right, #f97316 ${pct}%, #e5e7eb ${pct}%)` }}
       />
-      <button
-        onClick={() => setValeur(v => Math.min(max, v + 1))}
-        className="w-11 h-11 rounded-full bg-orange-100 text-orange-600 text-2xl font-bold flex items-center justify-center active:bg-orange-200"
-      >+</button>
+      <button onClick={() => setValeur(v => Math.min(20, v + 1))}
+        className="w-11 h-11 rounded-full bg-orange-100 text-orange-600 text-2xl font-bold flex items-center justify-center active:bg-orange-200">+</button>
     </div>
   );
 }
 
-// ─── App principale ────────────────────────────────────────────────────────────
+function ToggleYeast({ valeur, onChange, bgCls }) {
+  return (
+    <div className={`flex gap-2 mb-3 p-1 rounded-xl ${bgCls}`}>
+      {['seche', 'fraiche'].map(t => (
+        <button key={t} onClick={() => onChange(t)}
+          className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-all ${valeur === t ? 'bg-white text-yellow-700 shadow-sm' : 'text-gray-500'}`}>
+          {t === 'seche' ? 'Levure sèche' : 'Levure fraîche'}
+        </button>
+      ))}
+    </div>
+  );
+}
 
+function SectionMethode({ res, nbPizzas, poidsPaton, heures, temperature, frigo, fermentation }) {
+  const groupes = etapes({ res, nbPizzas, poidsPaton, heures, temperature, frigo, fermentation });
+  return (
+    <div className="bg-white rounded-3xl shadow-sm p-5 space-y-5">
+      <h2 className="text-base font-bold text-gray-500 uppercase tracking-widest">Instructions</h2>
+      {groupes.map((groupe, gi) => (
+        <div key={gi}>
+          <h3 className={`font-bold mb-3 ${groupe.couleur}`}>{groupe.titre}</h3>
+          <ol className="space-y-3">
+            {groupe.steps.map((step, si) => (
+              <li key={si} className="flex items-start gap-3 text-sm text-gray-600">
+                <span className="flex-shrink-0 w-6 h-6 rounded-full bg-orange-100 text-orange-600 font-bold text-xs flex items-center justify-center mt-0.5">
+                  {si + 1}
+                </span>
+                <span>{step}</span>
+              </li>
+            ))}
+          </ol>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── App principale ───────────────────────────────────────────────────────────
 function PizzaCalculator() {
-  const [nbPizzas,    setNbPizzas]    = useState(4);
-  const [poidsPaton,  setPoidsPaton]  = useState(250);
-  const [hydratation, setHydratation] = useState(62);
-  const [temperature, setTemperature] = useState(22);
-  const [heures,      setHeures]      = useState(8);
-  const [typeYeast,   setTypeYeast]   = useState('seche');
+  const [nbPizzas,      setNbPizzas]      = useState(4);
+  const [poidsPaton,    setPoidsPaton]    = useState(250);
+  const [hydratation,   setHydratation]   = useState(62);
+  const [temperature,   setTemperature]   = useState(22);
+  const [heures,        setHeures]        = useState(8);
+  const [fermentation,  setFermentation]  = useState('direct');
+  const [preFermentPct, setPreFermentPct] = useState(40);
+  const [frigo,         setFrigo]         = useState(false);
+  const [typeYeast,     setTypeYeast]     = useState('seche');
+
+  // Température effective : fixée à 4 °C si frigo
+  const tempEffective = frigo ? 4 : temperature;
+  // Plage d'heures selon le mode
+  const heuresMax  = frigo ? 120 : 72;
+  const heuresClamped = Math.min(heures, heuresMax);
 
   const res = useMemo(
-    () => calculerIngredients(nbPizzas, poidsPaton, hydratation, temperature, heures),
-    [nbPizzas, poidsPaton, hydratation, temperature, heures]
+    () => calculer({ nbPizzas, poidsPaton, hydratation, temperature: tempEffective, heures: heuresClamped, fermentation, preFermentPct }),
+    [nbPizzas, poidsPaton, hydratation, tempEffective, heuresClamped, fermentation, preFermentPct]
   );
 
   const tip = useMemo(
-    () => conseil(temperature, heures, hydratation),
-    [temperature, heures, hydratation]
+    () => conseil({ temperature: tempEffective, heures: heuresClamped, hydratation, fermentation, frigo }),
+    [tempEffective, heuresClamped, hydratation, fermentation, frigo]
   );
 
+  function choisirFermentation(id) {
+    setFermentation(id);
+    if (id === 'biga')    setPreFermentPct(40);
+    if (id === 'poolish') setPreFermentPct(30);
+  }
+
   return (
-    <div className="min-h-screen bg-amber-50 safe-area-pt">
+    <div className="min-h-screen bg-amber-50">
       {/* En-tête */}
-      <div className="bg-gradient-to-br from-orange-500 to-red-600 safe-area-pt px-5 pt-6 pb-7 shadow-lg">
+      <div className="bg-gradient-to-br from-orange-500 to-red-600 px-5 pt-10 pb-7 shadow-lg">
         <div className="max-w-lg mx-auto">
           <h1 className="text-3xl font-extrabold text-white text-center tracking-tight">🍕 Pizza Dough</h1>
           <p className="text-orange-100 text-sm text-center mt-1">Calculateur de pâte à pizza</p>
         </div>
       </div>
 
-      <div className="max-w-lg mx-auto px-4 py-5 space-y-4 safe-area-pb">
+      <div className="max-w-lg mx-auto px-4 py-5 space-y-4 pb-10">
+
+        {/* ── Type de fermentation ── */}
+        <div className="bg-white rounded-3xl shadow-sm p-5">
+          <h2 className="text-base font-bold text-gray-500 uppercase tracking-widest mb-3">Fermentation</h2>
+
+          {/* Directe / Biga / Poolish */}
+          <div className="flex gap-2 bg-gray-100 p-1 rounded-xl mb-4">
+            {[
+              { id: 'direct',  label: 'Directe'  },
+              { id: 'biga',    label: 'Biga'      },
+              { id: 'poolish', label: 'Poolish'   },
+            ].map(({ id, label }) => (
+              <button key={id} onClick={() => choisirFermentation(id)}
+                className={`flex-1 py-2.5 rounded-lg text-sm font-bold transition-all ${
+                  fermentation === id ? 'bg-white text-orange-600 shadow-sm' : 'text-gray-500'}`}>
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {/* Description */}
+          {fermentation === 'direct' && (
+            <p className="text-xs text-gray-500 text-center mb-4">Méthode classique en une seule étape. Idéale pour une pizza le jour même.</p>
+          )}
+          {fermentation === 'biga' && (
+            <p className="text-xs text-gray-500 text-center mb-4">Pré-ferment italien ferme (52 % hydratation). Préparez-le 16–24 h à l'avance.</p>
+          )}
+          {fermentation === 'poolish' && (
+            <p className="text-xs text-gray-500 text-center mb-4">Pré-ferment liquide (100 % hydratation). Préparez-le 12–16 h à l'avance.</p>
+          )}
+
+          {/* % Pré-ferment */}
+          {fermentation !== 'direct' && (
+            <div className="mb-4">
+              <div className="flex justify-between items-baseline mb-2">
+                <span className="font-semibold text-gray-700">
+                  Farine dans {fermentation === 'biga' ? 'la biga' : 'la poolish'}
+                </span>
+                <span className="text-3xl font-black text-orange-500">
+                  {preFermentPct}<span className="text-base font-semibold text-gray-400 ml-1">%</span>
+                </span>
+              </div>
+              <Curseur
+                min={20} max={fermentation === 'biga' ? 70 : 60} step={5}
+                valeur={preFermentPct} onChange={setPreFermentPct}
+                accent="accent-orange-500"
+                etiquetteMin="20 % (léger)"
+                etiquetteMax={fermentation === 'biga' ? '70 % (intense)' : '60 % (intense)'}
+              />
+              <p className="text-xs text-gray-400 mt-1 text-center">
+                {fermentation === 'biga' ? 'Recommandé : 40–60 %' : 'Recommandé : 25–40 %'}
+              </p>
+            </div>
+          )}
+
+          {/* Frigo toggle */}
+          <button
+            onClick={() => { setFrigo(f => !f); if (!frigo && heures < 12) setHeures(24); }}
+            className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl border-2 transition-all ${
+              frigo
+                ? 'bg-cyan-50 border-cyan-400 text-cyan-700'
+                : 'bg-gray-50 border-gray-200 text-gray-500'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <span className="text-xl">🧊</span>
+              <div className="text-left">
+                <div className="font-bold text-sm">Fermentation longue au frigo</div>
+                <div className="text-xs opacity-70">Température fixée à 4 °C — jusqu'à 120 h</div>
+              </div>
+            </div>
+            <div className={`w-10 h-6 rounded-full transition-all flex items-center px-1 ${frigo ? 'bg-cyan-400' : 'bg-gray-300'}`}>
+              <div className={`w-4 h-4 rounded-full bg-white shadow transition-all ${frigo ? 'translate-x-4' : ''}`} />
+            </div>
+          </button>
+        </div>
 
         {/* ── Paramètres ── */}
         <div className="bg-white rounded-3xl shadow-sm p-5 space-y-6">
           <h2 className="text-base font-bold text-gray-500 uppercase tracking-widest">Paramètres</h2>
 
-          {/* Nombre de pizzas */}
+          {/* Pizzas */}
           <div>
             <div className="flex justify-between items-baseline mb-3">
               <span className="font-semibold text-gray-700">Nombre de pizzas</span>
               <span className="text-4xl font-black text-orange-500">{nbPizzas}</span>
             </div>
-            <BoutonStepperNb valeur={nbPizzas} setValeur={setNbPizzas} min={1} max={20} />
+            <StepperPizzas valeur={nbPizzas} setValeur={setNbPizzas} />
           </div>
 
-          {/* Poids par pâton */}
+          {/* Poids */}
           <div>
             <div className="flex justify-between items-baseline mb-2">
               <span className="font-semibold text-gray-700">Poids par pâton</span>
@@ -163,13 +410,8 @@ function PizzaCalculator() {
                 {poidsPaton}<span className="text-lg font-semibold text-gray-400 ml-1">g</span>
               </span>
             </div>
-            <Curseur
-              min={150} max={400} step={10}
-              valeur={poidsPaton} onChange={setPoidsPaton}
-              couleurClass="accent-orange-500"
-              etiquetteMin="150 g (mini)"
-              etiquetteMax="400 g (maxi)"
-            />
+            <Curseur min={150} max={400} step={10} valeur={poidsPaton} onChange={setPoidsPaton}
+              accent="accent-orange-500" etiquetteMin="150 g" etiquetteMax="400 g" />
           </div>
 
           {/* Hydratation */}
@@ -180,156 +422,184 @@ function PizzaCalculator() {
                 {hydratation}<span className="text-lg font-semibold text-gray-400 ml-1">%</span>
               </span>
             </div>
-            <Curseur
-              min={55} max={80} step={1}
-              valeur={hydratation} onChange={setHydratation}
-              couleurClass="accent-blue-500"
-              etiquetteMin="55 % (ferme)"
-              etiquetteMax="80 % (molle)"
-            />
+            <Curseur min={55} max={80} step={1} valeur={hydratation} onChange={setHydratation}
+              accent="accent-blue-500" etiquetteMin="55 % (ferme)" etiquetteMax="80 % (molle)" />
           </div>
 
-          {/* Température */}
-          <div>
-            <div className="flex justify-between items-baseline mb-2">
-              <span className="font-semibold text-gray-700">Température ambiante</span>
-              <span className="text-4xl font-black text-red-500">
-                {temperature}<span className="text-lg font-semibold text-gray-400 ml-1">°C</span>
-              </span>
+          {/* Température (masquée si frigo) */}
+          {frigo ? (
+            <div className="flex items-center justify-between px-4 py-3 rounded-2xl bg-cyan-50 border border-cyan-200">
+              <div className="flex items-center gap-2">
+                <span className="text-2xl">🧊</span>
+                <span className="font-semibold text-cyan-700">Température frigo</span>
+              </div>
+              <span className="text-3xl font-black text-cyan-600">4 <span className="text-lg font-semibold text-gray-400">°C</span></span>
             </div>
-            <Curseur
-              min={16} max={30} step={1}
-              valeur={temperature} onChange={setTemperature}
-              couleurClass="accent-red-500"
-              etiquetteMin="16 °C"
-              etiquetteMax="30 °C"
-            />
-          </div>
+          ) : (
+            <div>
+              <div className="flex justify-between items-baseline mb-2">
+                <span className="font-semibold text-gray-700">Température ambiante</span>
+                <span className="text-4xl font-black text-red-500">
+                  {temperature}<span className="text-lg font-semibold text-gray-400 ml-1">°C</span>
+                </span>
+              </div>
+              <Curseur min={16} max={30} step={1} valeur={temperature} onChange={setTemperature}
+                accent="accent-red-500" etiquetteMin="16 °C" etiquetteMax="30 °C" />
+            </div>
+          )}
 
           {/* Temps de repos */}
           <div>
             <div className="flex justify-between items-baseline mb-2">
-              <span className="font-semibold text-gray-700">Temps de repos</span>
-              <span className="text-4xl font-black text-green-600">
-                {heures}<span className="text-lg font-semibold text-gray-400 ml-1">h</span>
+              <span className="font-semibold text-gray-700">
+                {fermentation !== 'direct' ? 'Repos final de la pâte' : 'Temps de repos'}
+              </span>
+              <span className={`text-4xl font-black ${frigo ? 'text-cyan-600' : 'text-green-600'}`}>
+                {heuresClamped}<span className="text-lg font-semibold text-gray-400 ml-1">h</span>
               </span>
             </div>
             <Curseur
-              min={2} max={72} step={1}
-              valeur={heures} onChange={setHeures}
-              couleurClass="accent-green-500"
-              etiquetteMin="2 h"
-              etiquetteMax="72 h"
+              min={frigo ? 12 : 2} max={heuresMax} step={frigo ? 4 : 1}
+              valeur={heuresClamped}
+              onChange={v => setHeures(v)}
+              accent={frigo ? 'accent-cyan-500' : 'accent-green-500'}
+              etiquetteMin={frigo ? '12 h' : '2 h'}
+              etiquetteMax={frigo ? '120 h (5 jours)' : '72 h'}
             />
           </div>
         </div>
 
-        {/* ── Résultats ── */}
-        <div className="bg-white rounded-3xl shadow-sm p-5 space-y-3">
-          <div className="flex justify-between items-center mb-1">
-            <h2 className="text-base font-bold text-gray-500 uppercase tracking-widest">Ingrédients</h2>
-            <span className="text-xs bg-gray-100 text-gray-500 font-semibold px-3 py-1 rounded-full">
-              {res.totalPate} g total
-            </span>
-          </div>
-
-          <LigneIngredient
-            emoji="🌾" label="Farine"
-            valeur={res.farine} unite="g"
-            bg="bg-amber-50" text="text-amber-800" border="border-amber-200"
-          />
-          <LigneIngredient
-            emoji="💧" label="Eau"
-            valeur={res.eau} unite="ml"
-            bg="bg-blue-50" text="text-blue-800" border="border-blue-200"
-          />
-          <LigneIngredient
-            emoji="🧂" label="Sel"
-            valeur={res.sel} unite="g"
-            bg="bg-gray-50" text="text-gray-700" border="border-gray-200"
-          />
-
-          {/* Toggle levure */}
-          <div className="pt-1">
-            <div className="flex gap-2 mb-3 bg-gray-100 p-1 rounded-xl">
-              <button
-                onClick={() => setTypeYeast('seche')}
-                className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-all ${
-                  typeYeast === 'seche'
-                    ? 'bg-white text-yellow-700 shadow-sm'
-                    : 'text-gray-500'
-                }`}
-              >
-                Levure sèche
-              </button>
-              <button
-                onClick={() => setTypeYeast('fraiche')}
-                className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-all ${
-                  typeYeast === 'fraiche'
-                    ? 'bg-white text-yellow-700 shadow-sm'
-                    : 'text-gray-500'
-                }`}
-              >
-                Levure fraîche
-              </button>
+        {/* ── Résultats : méthode directe ── */}
+        {fermentation === 'direct' && (
+          <div className="bg-white rounded-3xl shadow-sm p-5 space-y-3">
+            <div className="flex justify-between items-center mb-1">
+              <h2 className="text-base font-bold text-gray-500 uppercase tracking-widest">Ingrédients</h2>
+              <span className="text-xs bg-gray-100 text-gray-500 font-semibold px-3 py-1 rounded-full">{res.totalPate} g total</span>
             </div>
-            {typeYeast === 'seche' ? (
+            <LigneIngredient emoji="🌾" label="Farine" valeur={res.farine} unite="g"  bg="bg-amber-50" text="text-amber-800" border="border-amber-200" />
+            <LigneIngredient emoji="💧" label="Eau"    valeur={res.eau}    unite="ml" bg="bg-blue-50"  text="text-blue-800"  border="border-blue-200" />
+            <LigneIngredient emoji="🧂" label="Sel"    valeur={res.sel}    unite="g"  bg="bg-gray-50"  text="text-gray-700"  border="border-gray-200" />
+            <div className="pt-1">
+              <ToggleYeast valeur={typeYeast} onChange={setTypeYeast} bgCls="bg-gray-100" />
               <LigneIngredient
-                emoji="🟡" label="Levure sèche"
-                valeur={res.levSeche} unite="g"
+                emoji={typeYeast === 'seche' ? '🟡' : '🟤'}
+                label={typeYeast === 'seche' ? 'Levure sèche' : 'Levure fraîche'}
+                valeur={typeYeast === 'seche' ? res.levSeche : res.levFraiche}
+                unite="g"
                 bg="bg-yellow-50" text="text-yellow-800" border="border-yellow-200"
               />
-            ) : (
-              <LigneIngredient
-                emoji="🟤" label="Levure fraîche"
-                valeur={res.levFraiche} unite="g"
-                bg="bg-yellow-50" text="text-yellow-800" border="border-yellow-200"
-              />
-            )}
-            <p className="text-xs text-gray-400 text-center mt-2">
-              Levure sèche = levure fraîche ÷ 3
-            </p>
+              <p className="text-xs text-gray-400 text-center mt-2">Levure sèche = levure fraîche ÷ 3</p>
+            </div>
           </div>
-        </div>
+        )}
+
+        {/* ── Résultats : biga ── */}
+        {fermentation === 'biga' && (
+          <>
+            <div className={`border-2 rounded-3xl p-5 space-y-3 ${frigo ? 'bg-cyan-50 border-cyan-300' : 'bg-orange-50 border-orange-300'}`}>
+              <div className="flex justify-between items-center">
+                <h2 className={`text-base font-bold uppercase tracking-widest ${frigo ? 'text-cyan-700' : 'text-orange-700'}`}>① Biga</h2>
+                <span className={`text-xs font-bold px-3 py-1 rounded-full ${frigo ? 'bg-cyan-200 text-cyan-700' : 'bg-orange-200 text-orange-700'}`}>
+                  {frigo ? 'Frigo J−2' : 'Préparer J−1'}
+                </span>
+              </div>
+              <LigneIngredient emoji="🌾" label="Farine"     valeur={res.bigaFarine} unite="g"  bg="bg-white" text="text-amber-800" border="border-amber-200" />
+              <LigneIngredient emoji="💧" label="Eau (52 %)" valeur={res.bigaEau}    unite="ml" bg="bg-white" text="text-blue-800"  border="border-blue-200" />
+              <div className="pt-1">
+                <ToggleYeast valeur={typeYeast} onChange={setTypeYeast} bgCls={frigo ? 'bg-cyan-100' : 'bg-orange-100'} />
+                <LigneIngredient
+                  emoji={typeYeast === 'seche' ? '🟡' : '🟤'}
+                  label={typeYeast === 'seche' ? 'Levure sèche' : 'Levure fraîche'}
+                  valeur={typeYeast === 'seche' ? res.bigaLevS : res.bigaLevF}
+                  unite="g" bg="bg-white" text="text-yellow-800" border="border-yellow-200"
+                />
+              </div>
+            </div>
+            <div className="bg-white rounded-3xl shadow-sm p-5 space-y-3">
+              <div className="flex justify-between items-center">
+                <h2 className="text-base font-bold text-gray-500 uppercase tracking-widest">② Pâte finale</h2>
+                <span className="text-xs bg-gray-100 text-gray-500 font-semibold px-3 py-1 rounded-full">{res.totalPate} g total</span>
+              </div>
+              <div className="flex items-center justify-between px-4 py-3 rounded-2xl border bg-orange-50 border-orange-200">
+                <div className="flex items-center gap-2">
+                  <span className="text-2xl">🫙</span>
+                  <span className="font-semibold text-orange-800">Biga (intégralité)</span>
+                </div>
+                <span className="text-lg font-bold text-orange-600">≈ {res.bigaTotal} g</span>
+              </div>
+              <LigneIngredient emoji="🌾" label="Farine restante" valeur={res.finalFarine} unite="g"  bg="bg-amber-50" text="text-amber-800" border="border-amber-200" />
+              <LigneIngredient emoji="💧" label="Eau restante"    valeur={res.finalEau}    unite="ml" bg="bg-blue-50"  text="text-blue-800"  border="border-blue-200" />
+              <LigneIngredient emoji="🧂" label="Sel"             valeur={res.sel}         unite="g"  bg="bg-gray-50"  text="text-gray-700"  border="border-gray-200" />
+              <p className="text-xs text-gray-400 text-center">Pas de levure supplémentaire — la biga suffit.</p>
+            </div>
+          </>
+        )}
+
+        {/* ── Résultats : poolish ── */}
+        {fermentation === 'poolish' && (
+          <>
+            <div className={`border-2 rounded-3xl p-5 space-y-3 ${frigo ? 'bg-cyan-50 border-cyan-300' : 'bg-blue-50 border-blue-300'}`}>
+              <div className="flex justify-between items-center">
+                <h2 className={`text-base font-bold uppercase tracking-widest ${frigo ? 'text-cyan-700' : 'text-blue-700'}`}>① Poolish</h2>
+                <span className={`text-xs font-bold px-3 py-1 rounded-full ${frigo ? 'bg-cyan-200 text-cyan-700' : 'bg-blue-200 text-blue-700'}`}>
+                  {frigo ? 'Frigo J−2' : 'Préparer J−1'}
+                </span>
+              </div>
+              <LigneIngredient emoji="🌾" label="Farine"       valeur={res.poolFarine} unite="g"  bg="bg-white" text="text-amber-800" border="border-amber-200" />
+              <LigneIngredient emoji="💧" label="Eau (100 %)"  valeur={res.poolEau}    unite="ml" bg="bg-white" text="text-blue-800"  border="border-blue-200" />
+              <div className="pt-1">
+                <ToggleYeast valeur={typeYeast} onChange={setTypeYeast} bgCls={frigo ? 'bg-cyan-100' : 'bg-blue-100'} />
+                <LigneIngredient
+                  emoji={typeYeast === 'seche' ? '🟡' : '🟤'}
+                  label={typeYeast === 'seche' ? 'Levure sèche' : 'Levure fraîche'}
+                  valeur={typeYeast === 'seche' ? res.poolLevS : res.poolLevF}
+                  unite="g" bg="bg-white" text="text-yellow-800" border="border-yellow-200"
+                />
+                <p className="text-xs text-gray-400 text-center mt-2">Très petite quantité : balance de précision (0,1 g) recommandée.</p>
+              </div>
+            </div>
+            <div className="bg-white rounded-3xl shadow-sm p-5 space-y-3">
+              <div className="flex justify-between items-center">
+                <h2 className="text-base font-bold text-gray-500 uppercase tracking-widest">② Pâte finale</h2>
+                <span className="text-xs bg-gray-100 text-gray-500 font-semibold px-3 py-1 rounded-full">{res.totalPate} g total</span>
+              </div>
+              <div className="flex items-center justify-between px-4 py-3 rounded-2xl border bg-blue-50 border-blue-200">
+                <div className="flex items-center gap-2">
+                  <span className="text-2xl">🫙</span>
+                  <span className="font-semibold text-blue-800">Poolish (intégralité)</span>
+                </div>
+                <span className="text-lg font-bold text-blue-600">≈ {res.poolTotal} g</span>
+              </div>
+              <LigneIngredient emoji="🌾" label="Farine restante" valeur={res.finalFarine} unite="g"  bg="bg-amber-50" text="text-amber-800" border="border-amber-200" />
+              <LigneIngredient emoji="💧" label="Eau restante"    valeur={res.finalEau}    unite="ml" bg="bg-blue-50"  text="text-blue-800"  border="border-blue-200" />
+              <LigneIngredient emoji="🧂" label="Sel"             valeur={res.sel}         unite="g"  bg="bg-gray-50"  text="text-gray-700"  border="border-gray-200" />
+              <p className="text-xs text-gray-400 text-center">Pas de levure supplémentaire — la poolish suffit.</p>
+            </div>
+          </>
+        )}
 
         {/* ── Conseil ── */}
-        <div className="bg-orange-50 border border-orange-200 rounded-3xl px-5 py-4">
-          <p className="text-sm text-orange-800">
-            <span className="font-bold">💡 Conseil : </span>{tip}
+        <div className={`border rounded-3xl px-5 py-4 ${frigo ? 'bg-cyan-50 border-cyan-200' : 'bg-orange-50 border-orange-200'}`}>
+          <p className={`text-sm ${frigo ? 'text-cyan-800' : 'text-orange-800'}`}>
+            <span className="font-bold">{frigo ? '🧊 ' : '💡 '}Conseil : </span>{tip}
           </p>
         </div>
 
-        {/* ── Méthode ── */}
-        <div className="bg-white rounded-3xl shadow-sm p-5">
-          <h2 className="text-base font-bold text-gray-500 uppercase tracking-widest mb-3">Méthode</h2>
-          <ol className="space-y-2 text-sm text-gray-600 list-none">
-            {[
-              "Dissoudre la levure dans l'eau tiède (max 35 °C).",
-              "Mélanger la farine et le sel dans un grand bol.",
-              "Verser l'eau progressivement et pétrir 10–12 min.",
-              `Couvrir et laisser reposer ${heures} h à ${temperature} °C.`,
-              `Diviser en ${nbPizzas} pâton(s) de ${poidsPaton} g.`,
-              "Etaler à la main en partant du centre vers les bords.",
-              "Garnir et cuire au four le plus chaud possible.",
-            ].map((etape, i) => (
-              <li key={i} className="flex items-start gap-3">
-                <span className="flex-shrink-0 w-6 h-6 rounded-full bg-orange-100 text-orange-600 font-bold text-xs flex items-center justify-center mt-0.5">
-                  {i + 1}
-                </span>
-                <span>{etape}</span>
-              </li>
-            ))}
-          </ol>
-        </div>
+        {/* ── Instructions ── */}
+        <SectionMethode
+          res={res}
+          nbPizzas={nbPizzas} poidsPaton={poidsPaton}
+          heures={heuresClamped} temperature={tempEffective}
+          frigo={frigo} fermentation={fermentation}
+        />
 
         {/* ── Installer ── */}
-        <div className="bg-white rounded-3xl shadow-sm p-5 text-sm text-gray-600">
+        <div className="bg-white rounded-3xl shadow-sm p-5">
           <h3 className="font-bold text-gray-800 mb-2">📱 Installer sur iPhone</h3>
           <ol className="list-decimal list-inside space-y-1 text-xs text-gray-500">
-            <li>Ouvrez cette page dans <strong>Safari</strong></li>
-            <li>Appuyez sur le bouton <strong>Partager ⬆️</strong></li>
+            <li>Ouvrez dans <strong>Safari</strong></li>
+            <li>Appuyez sur <strong>Partager ⬆️</strong></li>
             <li>Choisissez <strong>« Sur l'écran d'accueil »</strong></li>
-            <li>L'app se lance comme une vraie application !</li>
           </ol>
         </div>
 
