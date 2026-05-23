@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Pizza Dough">
+  <meta name="theme-color" content="#ea580c">
+  <title>Calculateur Pâte à Pizza</title>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="manifest" href="pizza-manifest.json">
+  <style>
+    * { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+    body { background-color: #fff7ed; }
+    input[type=range] { -webkit-appearance: none; appearance: none; height: 6px; border-radius: 3px; outline: none; }
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 26px; height: 26px;
+      border-radius: 50%;
+      cursor: pointer;
+      border: 3px solid white;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.25);
+    }
+    .safe-area-pb { padding-bottom: env(safe-area-inset-bottom, 16px); }
+    .safe-area-pt { padding-top: env(safe-area-inset-top, 0px); }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel" src="pizza-app.js"></script>
+</body>
+</html>

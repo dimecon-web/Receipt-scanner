@@ -1,0 +1,18 @@
+{
+  "name": "Pizza Dough Calculator",
+  "short_name": "Pizza Dough",
+  "description": "Calculateur de pâte à pizza : farine, eau, levure, sel selon vos paramètres",
+  "start_url": "./pizza.html",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#fff7ed",
+  "theme_color": "#ea580c",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🍕</text></svg>",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
