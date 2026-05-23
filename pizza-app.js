@@ -7,7 +7,7 @@ function levureFraicheParKg(temperature, heures) {
   return Math.min(Math.max(2 / (facteurTemp * facteurTemps), 0.05), 30);
 }
 
-// ─── Calcul levure pré-ferment (règle Q10) ────────────────────────────────
+// ─── Calcul levure pré-ferment (règle Q10) ────────────────────────────────────
 function levurePreFerment(temperature, heures, baseGParKg, tempRef, heuresRef) {
   const facteurTemp = Math.pow(2, (temperature - tempRef) / 10);
   const facteurTemps = heures / heuresRef;
@@ -100,7 +100,7 @@ function etapes({ res, nbPizzas, poidsPaton, heures, temperature, frigo, ferment
   if (res.type === 'biga') {
     return [
       {
-        titre: '① Préparer la biga (J−1)',
+        titre: '① Préparer la biga',
         couleur: 'text-orange-700',
         steps: [
           `Mélanger ${res.bigaFarine} g de farine + ${res.bigaEau} ml d'eau froide. La pâte est très grumeleuse, ne pas trop travailler.`,
@@ -130,7 +130,7 @@ function etapes({ res, nbPizzas, poidsPaton, heures, temperature, frigo, ferment
   if (res.type === 'poolish') {
     return [
       {
-        titre: '① Préparer la poolish (J−1)',
+        titre: '① Préparer la poolish',
         couleur: 'text-blue-700',
         steps: [
           `Mélanger ${res.poolFarine} g de farine + ${res.poolEau} ml d'eau tiède + ${res.poolLevF} g de levure fraîche (ou ${res.poolLevS} g sèche).`,
@@ -174,6 +174,23 @@ function etapes({ res, nbPizzas, poidsPaton, heures, temperature, frigo, ferment
       ],
     },
   ];
+}
+
+// ─── Formatage dates planning ─────────────────────────────────────────────────
+function formatHeure(date) {
+  return date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+}
+
+function formatJour(date) {
+  const now  = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const cible = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const diff  = Math.round((cible - today) / 86400000);
+  if (diff === 0)  return "Aujourd'hui";
+  if (diff === 1)  return 'Demain';
+  if (diff === -1) return 'Hier';
+  if (diff < 0)    return `Il y a ${-diff} jours`;
+  return date.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
 }
 
 // ─── Composants UI ────────────────────────────────────────────────────────────
@@ -277,6 +294,8 @@ function PizzaCalculator() {
   const [heuresPreFerment, setHeuresPreFerment] = useState(18);
   const [frigo,            setFrigo]            = useState(false);
   const [typeYeast,        setTypeYeast]        = useState('seche');
+  const [heureCuisson,     setHeureCuisson]     = useState('');
+  const [jourCuisson,      setJourCuisson]      = useState(0);
 
   const tempEffective = frigo ? 4 : temperature;
   const heuresMax     = frigo ? 120 : 72;
@@ -296,6 +315,58 @@ function PizzaCalculator() {
     [tempEffective, heuresClamped, hydratation, fermentation, frigo]
   );
 
+  // ─── Planning rétroactif ─────────────────────────────────────────────────
+  const planning = useMemo(() => {
+    if (!heureCuisson) return null;
+    const [h, m] = heureCuisson.split(':').map(Number);
+    const cuisson = new Date();
+    cuisson.setDate(cuisson.getDate() + jourCuisson);
+    cuisson.setHours(h, m, 0, 0);
+
+    // 1 h avant cuisson : façonnage + préchauffage + pointage final
+    const BUFFER_MS   = 60 * 60000;
+    const faconnage   = new Date(cuisson.getTime() - BUFFER_MS);
+    const debutFinal  = new Date(faconnage.getTime() - heuresClamped * 3600000);
+
+    const etapes = [];
+
+    if (fermentation !== 'direct') {
+      const debutPre = new Date(debutFinal.getTime() - heuresPreFerment * 3600000);
+      etapes.push({
+        label: fermentation === 'biga' ? 'Préparer la biga' : 'Préparer la poolish',
+        emoji: fermentation === 'biga' ? '🟠' : '🔵',
+        date: debutPre,
+      });
+      etapes.push({
+        label: 'Commencer la pâte finale',
+        emoji: '🌾',
+        date: debutFinal,
+      });
+    } else {
+      etapes.push({
+        label: 'Commencer le pétrissage',
+        emoji: '🌾',
+        date: debutFinal,
+      });
+    }
+
+    etapes.push({ label: 'Façonner + préchauffer le four', emoji: '🔥', date: faconnage });
+    etapes.push({ label: 'Enfourner', emoji: '🍕', date: cuisson, isCuisson: true });
+
+    return etapes;
+  }, [heureCuisson, jourCuisson, fermentation, heuresClamped, heuresPreFerment]);
+
+  // Chips de jours (aujourd'hui + 6 jours)
+  const joursChips = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date();
+    d.setDate(d.getDate() + i);
+    return {
+      offset: i,
+      jourAbr: i === 0 ? "Auj." : i === 1 ? "Dem." : d.toLocaleDateString('fr-FR', { weekday: 'short' }),
+      date: d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }),
+    };
+  });
+
   function choisirFermentation(id) {
     setFermentation(id);
     if (id === 'biga')    { setPreFermentPct(40); setTempPreFerment(18); setHeuresPreFerment(18); }
@@ -304,6 +375,7 @@ function PizzaCalculator() {
 
   return (
     <div className="min-h-screen bg-amber-50">
+      {/* En-tête */}
       <div className="bg-gradient-to-br from-orange-500 to-red-600 px-5 pt-10 pb-7 shadow-lg">
         <div className="max-w-lg mx-auto">
           <h1 className="text-3xl font-extrabold text-white text-center tracking-tight">🍕 Pizza Dough</h1>
@@ -313,8 +385,99 @@ function PizzaCalculator() {
 
       <div className="max-w-lg mx-auto px-4 py-5 space-y-4 pb-10">
 
+        {/* ── Heure de cuisson ── */}
+        <div className="bg-white rounded-3xl shadow-sm p-5">
+          <h2 className="text-base font-bold text-gray-500 uppercase tracking-widest mb-1">🕐 Heure de cuisson</h2>
+          <p className="text-xs text-gray-400 mb-4">Le planning de toutes les étapes sera calculé à rebours.</p>
+
+          {/* Chips de jours */}
+          <div className="flex gap-2 overflow-x-auto pb-2 mb-4 -mx-1 px-1 scrollbar-hide">
+            {joursChips.map(({ offset, jourAbr, date }) => (
+              <button key={offset}
+                onClick={() => setJourCuisson(offset)}
+                className={`flex-shrink-0 flex flex-col items-center px-3 py-2 rounded-xl min-w-14 transition-all ${
+                  jourCuisson === offset
+                    ? 'bg-orange-500 text-white shadow-sm'
+                    : 'bg-gray-100 text-gray-600'
+                }`}>
+                <span className="text-xs font-bold">{jourAbr}</span>
+                <span className="text-xs opacity-80">{date}</span>
+              </button>
+            ))}
+          </div>
+
+          {/* Saisie de l'heure */}
+          <div className="flex items-center gap-3">
+            <input
+              type="time"
+              value={heureCuisson}
+              onChange={e => setHeureCuisson(e.target.value)}
+              className="flex-1 text-3xl font-black text-orange-500 border-2 border-orange-200 rounded-2xl px-4 py-3 outline-none bg-orange-50 text-center focus:border-orange-400"
+            />
+            {heureCuisson && (
+              <button
+                onClick={() => setHeureCuisson('')}
+                className="w-11 h-11 rounded-full bg-gray-100 text-gray-400 text-xl font-bold flex items-center justify-center active:bg-gray-200">
+                ×
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* ── Planning ── */}
+        {planning && (
+          <div className="bg-white rounded-3xl shadow-sm p-5">
+            <h2 className="text-base font-bold text-gray-500 uppercase tracking-widest mb-4">📅 Planning</h2>
+            <div>
+              {planning.map((etape, i) => {
+                const maintenant = new Date();
+                const estPasse   = etape.date < maintenant && !etape.isCuisson;
+                return (
+                  <div key={i} className="flex items-stretch gap-4">
+                    {/* Colonne timeline */}
+                    <div className="flex flex-col items-center">
+                      <div className={`w-9 h-9 rounded-full flex items-center justify-center text-base flex-shrink-0 ${
+                        etape.isCuisson
+                          ? 'bg-red-100'
+                          : estPasse
+                          ? 'bg-gray-100'
+                          : 'bg-orange-100'
+                      }`}>
+                        {etape.emoji}
+                      </div>
+                      {i < planning.length - 1 && (
+                        <div className="w-0.5 bg-gray-200 flex-1 my-1" style={{minHeight: '1.5rem'}} />
+                      )}
+                    </div>
+
+                    {/* Contenu */}
+                    <div className={`flex-1 pb-5 ${i === planning.length - 1 ? 'pb-0' : ''}`}>
+                      <div className={`font-bold text-sm ${estPasse ? 'text-gray-400' : etape.isCuisson ? 'text-red-600' : 'text-gray-800'}`}>
+                        {etape.label}
+                        {estPasse && <span className="ml-2 text-xs font-normal text-orange-400">⚠️ déjà passé</span>}
+                      </div>
+                      <div className={`text-xs mt-0.5 ${estPasse ? 'text-gray-300' : 'text-gray-500'}`}>
+                        {formatJour(etape.date)}
+                      </div>
+                    </div>
+
+                    {/* Heure */}
+                    <div className={`text-right flex-shrink-0 pt-0.5 ${estPasse ? 'opacity-40' : ''}`}>
+                      <div className={`text-2xl font-black tabular-nums ${etape.isCuisson ? 'text-red-500' : 'text-gray-700'}`}>
+                        {formatHeure(etape.date)}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* ── Type de fermentation ── */}
         <div className="bg-white rounded-3xl shadow-sm p-5">
           <h2 className="text-base font-bold text-gray-500 uppercase tracking-widest mb-3">Fermentation</h2>
+
           <div className="flex gap-2 bg-gray-100 p-1 rounded-xl mb-4">
             {[
               { id: 'direct',  label: 'Directe'  },
@@ -333,6 +496,7 @@ function PizzaCalculator() {
             <p className="text-xs text-gray-500 text-center mb-4">Méthode classique en une seule étape. Idéale pour une pizza le jour même.</p>
           )}
 
+          {/* ── Bloc pré-ferment ── */}
           {fermentation !== 'direct' && (
             <div className="bg-gray-50 rounded-2xl p-4 mb-4 space-y-5">
               <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">
@@ -344,6 +508,7 @@ function PizzaCalculator() {
               {fermentation === 'poolish' && (
                 <p className="text-xs text-gray-500 -mt-2">Pré-ferment liquide (100 % hydratation). Préparez-le à l'avance.</p>
               )}
+
               <div>
                 <div className="flex justify-between items-baseline mb-2">
                   <span className="font-semibold text-gray-700 text-sm">
@@ -364,6 +529,7 @@ function PizzaCalculator() {
                   {fermentation === 'biga' ? 'Recommandé : 40–60 %' : 'Recommandé : 25–40 %'}
                 </p>
               </div>
+
               <div>
                 <div className="flex justify-between items-baseline mb-2">
                   <span className="font-semibold text-gray-700 text-sm">
@@ -381,6 +547,7 @@ function PizzaCalculator() {
                   etiquetteMax="24 °C"
                 />
               </div>
+
               <div>
                 <div className="flex justify-between items-baseline mb-2">
                   <span className="font-semibold text-gray-700 text-sm">
@@ -401,6 +568,7 @@ function PizzaCalculator() {
             </div>
           )}
 
+          {/* Frigo toggle */}
           <button
             onClick={() => { setFrigo(f => !f); if (!frigo && heures < 12) setHeures(24); }}
             className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl border-2 transition-all ${
@@ -424,10 +592,12 @@ function PizzaCalculator() {
           </button>
         </div>
 
+        {/* ── Paramètres pâte finale ── */}
         <div className="bg-white rounded-3xl shadow-sm p-5 space-y-6">
           <h2 className="text-base font-bold text-gray-500 uppercase tracking-widest">
             {fermentation !== 'direct' ? '② Paramètres pâte finale' : 'Paramètres'}
           </h2>
+
           <div>
             <div className="flex justify-between items-baseline mb-3">
               <span className="font-semibold text-gray-700">Nombre de pizzas</span>
@@ -435,6 +605,7 @@ function PizzaCalculator() {
             </div>
             <StepperPizzas valeur={nbPizzas} setValeur={setNbPizzas} />
           </div>
+
           <div>
             <div className="flex justify-between items-baseline mb-2">
               <span className="font-semibold text-gray-700">Poids par pâton</span>
@@ -445,6 +616,7 @@ function PizzaCalculator() {
             <Curseur min={150} max={400} step={10} valeur={poidsPaton} onChange={setPoidsPaton}
               accent="accent-orange-500" etiquetteMin="150 g" etiquetteMax="400 g" />
           </div>
+
           <div>
             <div className="flex justify-between items-baseline mb-2">
               <span className="font-semibold text-gray-700">Hydratation</span>
@@ -455,6 +627,7 @@ function PizzaCalculator() {
             <Curseur min={55} max={80} step={1} valeur={hydratation} onChange={setHydratation}
               accent="accent-blue-500" etiquetteMin="55 % (ferme)" etiquetteMax="80 % (molle)" />
           </div>
+
           {frigo ? (
             <div className="flex items-center justify-between px-4 py-3 rounded-2xl bg-cyan-50 border border-cyan-200">
               <div className="flex items-center gap-2">
@@ -477,6 +650,7 @@ function PizzaCalculator() {
                 accent="accent-red-500" etiquetteMin="16 °C" etiquetteMax="30 °C" />
             </div>
           )}
+
           <div>
             <div className="flex justify-between items-baseline mb-2">
               <span className="font-semibold text-gray-700">
@@ -497,6 +671,7 @@ function PizzaCalculator() {
           </div>
         </div>
 
+        {/* ── Résultats : méthode directe ── */}
         {fermentation === 'direct' && (
           <div className="bg-white rounded-3xl shadow-sm p-5 space-y-3">
             <div className="flex justify-between items-center mb-1">
@@ -520,6 +695,7 @@ function PizzaCalculator() {
           </div>
         )}
 
+        {/* ── Résultats : biga ── */}
         {fermentation === 'biga' && (
           <>
             <div className={`border-2 rounded-3xl p-5 space-y-3 ${frigo ? 'bg-cyan-50 border-cyan-300' : 'bg-orange-50 border-orange-300'}`}>
@@ -561,6 +737,7 @@ function PizzaCalculator() {
           </>
         )}
 
+        {/* ── Résultats : poolish ── */}
         {fermentation === 'poolish' && (
           <>
             <div className={`border-2 rounded-3xl p-5 space-y-3 ${frigo ? 'bg-cyan-50 border-cyan-300' : 'bg-blue-50 border-blue-300'}`}>
@@ -603,12 +780,14 @@ function PizzaCalculator() {
           </>
         )}
 
+        {/* ── Conseil ── */}
         <div className={`border rounded-3xl px-5 py-4 ${frigo ? 'bg-cyan-50 border-cyan-200' : 'bg-orange-50 border-orange-200'}`}>
           <p className={`text-sm ${frigo ? 'text-cyan-800' : 'text-orange-800'}`}>
             <span className="font-bold">{frigo ? '🧊 ' : '💡 '}Conseil : </span>{tip}
           </p>
         </div>
 
+        {/* ── Instructions ── */}
         <SectionMethode
           res={res}
           nbPizzas={nbPizzas} poidsPaton={poidsPaton}
@@ -617,6 +796,7 @@ function PizzaCalculator() {
           tempPreFerment={tempPreFerment} heuresPreFerment={heuresPreFerment}
         />
 
+        {/* ── Installer ── */}
         <div className="bg-white rounded-3xl shadow-sm p-5">
           <h3 className="font-bold text-gray-800 mb-2">📱 Installer sur iPhone</h3>
           <ol className="list-decimal list-inside space-y-1 text-xs text-gray-500">
