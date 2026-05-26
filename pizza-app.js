@@ -529,23 +529,62 @@ function JoursChips({ jourCuisson, setJourCuisson }) {
   );
 }
 
-function SectionHeureCuisson({ heureCuisson, setHeureCuisson, jourCuisson, setJourCuisson }) {
+function SectionPlanification({
+  modePlanif, setModePlanif,
+  heures, setHeures, heuresMax, heuresClamped, frigo, labelDuree,
+  heureCuisson, setHeureCuisson, jourCuisson, setJourCuisson,
+  dureeBadge,
+}) {
   return (
     <div className="bg-white rounded-3xl shadow-sm p-5">
-      <h2 className="text-base font-bold text-gray-500 uppercase tracking-widest mb-1">🕐 Heure de cuisson</h2>
-      <p className="text-xs text-gray-400 mb-4">Le planning de toutes les étapes sera calculé à rebours.</p>
-      <JoursChips jourCuisson={jourCuisson} setJourCuisson={setJourCuisson} />
-      <div className="flex items-center gap-3">
-        <input
-          type="time" value={heureCuisson}
-          onChange={e => setHeureCuisson(e.target.value)}
-          className="flex-1 text-3xl font-black text-orange-500 border-2 border-orange-200 rounded-2xl px-4 py-3 outline-none bg-orange-50 text-center focus:border-orange-400"
-        />
-        {heureCuisson && (
-          <button onClick={() => setHeureCuisson('')}
-            className="w-11 h-11 rounded-full bg-gray-100 text-gray-400 text-xl font-bold flex items-center justify-center active:bg-gray-200">×</button>
-        )}
+      <div className="flex gap-2 bg-gray-100 p-1 rounded-xl mb-5">
+        <button onClick={() => setModePlanif('duree')}
+          className={`flex-1 py-2.5 rounded-lg text-sm font-bold transition-all ${modePlanif === 'duree' ? 'bg-white text-green-700 shadow-sm' : 'text-gray-500'}`}>
+          ⏱ Durée libre
+        </button>
+        <button onClick={() => setModePlanif('planning')}
+          className={`flex-1 py-2.5 rounded-lg text-sm font-bold transition-all ${modePlanif === 'planning' ? 'bg-white text-orange-600 shadow-sm' : 'text-gray-500'}`}>
+          📅 Heure cible
+        </button>
       </div>
+
+      {modePlanif === 'duree' && (
+        <div>
+          <div className="flex justify-between items-baseline mb-2">
+            <span className="font-semibold text-gray-700">{labelDuree}</span>
+            <span className={`text-4xl font-black ${frigo ? 'text-cyan-600' : 'text-green-600'}`}>
+              {heuresClamped}<span className="text-lg font-semibold text-gray-400 ml-1">h</span>
+            </span>
+          </div>
+          <Curseur
+            min={frigo ? 12 : 2} max={heuresMax} step={frigo ? 4 : 1}
+            valeur={heuresClamped} onChange={v => setHeures(v)}
+            accent={frigo ? 'accent-cyan-500' : 'accent-green-500'}
+            etiquetteMin={frigo ? '12 h' : '2 h'} etiquetteMax={frigo ? '120 h (5 jours)' : '72 h'}
+          />
+        </div>
+      )}
+
+      {modePlanif === 'planning' && (
+        <>
+          <p className="text-xs text-gray-400 mb-3">Toutes les étapes sont calculées à rebours depuis l'heure de cuisson.</p>
+          <div className="flex items-center justify-between px-4 py-2 rounded-xl bg-green-50 border border-green-200 mb-4">
+            <span className="text-sm text-green-700 font-semibold">🔒 {labelDuree}</span>
+            <span className="text-lg font-black text-green-700">{dureeBadge}</span>
+          </div>
+          <JoursChips jourCuisson={jourCuisson} setJourCuisson={setJourCuisson} />
+          <div className="flex items-center gap-3">
+            <input type="time" value={heureCuisson}
+              onChange={e => setHeureCuisson(e.target.value)}
+              className="flex-1 text-3xl font-black text-orange-500 border-2 border-orange-200 rounded-2xl px-4 py-3 outline-none bg-orange-50 text-center focus:border-orange-400"
+            />
+            {heureCuisson && (
+              <button onClick={() => setHeureCuisson('')}
+                className="w-11 h-11 rounded-full bg-gray-100 text-gray-400 text-xl font-bold flex items-center justify-center active:bg-gray-200">×</button>
+            )}
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -629,6 +668,7 @@ function PizzaCalculator() {
   const [typeYeast,        setTypeYeast]        = useState('seche');
   const [heureCuisson,     setHeureCuisson]     = useState('');
   const [jourCuisson,      setJourCuisson]      = useState(0);
+  const [modePlanif,       setModePlanif]       = useState('duree');
 
   const tempEffective = frigo ? 4 : temperature;
   const heuresMax     = frigo ? 120 : 72;
@@ -649,7 +689,7 @@ function PizzaCalculator() {
   );
 
   const planning = useMemo(() => {
-    if (!heureCuisson) return null;
+    if (modePlanif !== 'planning' || !heureCuisson) return null;
     const [h, m] = heureCuisson.split(':').map(Number);
     const cuisson = new Date();
     cuisson.setDate(cuisson.getDate() + jourCuisson);
@@ -677,7 +717,7 @@ function PizzaCalculator() {
     etapesArr.push({ label: 'Enfourner', emoji: '🍕', date: cuisson, isCuisson: true });
 
     return etapesArr;
-  }, [heureCuisson, jourCuisson, fermentation, heuresClamped, heuresPreFerment]);
+  }, [modePlanif, heureCuisson, jourCuisson, fermentation, heuresClamped, heuresPreFerment]);
 
   function choisirFermentation(id) {
     setFermentation(id);
@@ -688,7 +728,11 @@ function PizzaCalculator() {
   return (
     <div className="max-w-lg mx-auto px-4 py-5 space-y-4 pb-10">
 
-      <SectionHeureCuisson
+      <SectionPlanification
+        modePlanif={modePlanif} setModePlanif={setModePlanif}
+        heures={heures} setHeures={setHeures} heuresMax={heuresMax} heuresClamped={heuresClamped} frigo={frigo}
+        labelDuree={fermentation !== 'direct' ? 'Repos pâte finale' : 'Temps de fermentation'}
+        dureeBadge={`${heuresClamped} h`}
         heureCuisson={heureCuisson} setHeureCuisson={setHeureCuisson}
         jourCuisson={jourCuisson}   setJourCuisson={setJourCuisson}
       />
@@ -817,18 +861,6 @@ function PizzaCalculator() {
           </div>
         )}
 
-        <div>
-          <div className="flex justify-between items-baseline mb-2">
-            <span className="font-semibold text-gray-700">{fermentation !== 'direct' ? 'Repos pâte finale' : 'Temps de repos'}</span>
-            <span className={`text-4xl font-black ${frigo ? 'text-cyan-600' : 'text-green-600'}`}>
-              {heuresClamped}<span className="text-lg font-semibold text-gray-400 ml-1">h</span>
-            </span>
-          </div>
-          <Curseur min={frigo ? 12 : 2} max={heuresMax} step={frigo ? 4 : 1}
-            valeur={heuresClamped} onChange={v => setHeures(v)}
-            accent={frigo ? 'accent-cyan-500' : 'accent-green-500'}
-            etiquetteMin={frigo ? '12 h' : '2 h'} etiquetteMax={frigo ? '120 h (5 jours)' : '72 h'} />
-        </div>
       </div>
 
       {/* Résultats directe */}
@@ -971,6 +1003,7 @@ function PainCalculator() {
   const [typeYeast,        setTypeYeast]        = useState('seche');
   const [heureCuisson,     setHeureCuisson]     = useState('');
   const [jourCuisson,      setJourCuisson]      = useState(0);
+  const [modePlanif,       setModePlanif]       = useState('duree');
 
   const res = useMemo(
     () => calculerPain({ nbPains, poidsPain, hydratation, sel, fermentation, levainPct, preFermentPct, tempPreFerment, heuresPreFerment, tempPointage, heuresPointage, heuresApprêt, frigoApprêt }),
@@ -983,7 +1016,7 @@ function PainCalculator() {
   );
 
   const planning = useMemo(() => {
-    if (!heureCuisson) return null;
+    if (modePlanif !== 'planning' || !heureCuisson) return null;
     const [h, m] = heureCuisson.split(':').map(Number);
     const cuisson = new Date();
     cuisson.setDate(cuisson.getDate() + jourCuisson);
@@ -1014,7 +1047,7 @@ function PainCalculator() {
     arr.push({ label: 'Inciser + enfourner', emoji: '🫓', date: cuisson, isCuisson: true });
 
     return arr;
-  }, [heureCuisson, jourCuisson, fermentation, heuresLevain, heuresPreFerment, heuresPointage, heuresApprêt, frigoApprêt]);
+  }, [modePlanif, heureCuisson, jourCuisson, fermentation, heuresLevain, heuresPreFerment, heuresPointage, heuresApprêt, frigoApprêt]);
 
   function choisirFermentation(id) {
     setFermentation(id);
@@ -1022,13 +1055,72 @@ function PainCalculator() {
     if (id === 'poolish') { setPreFermentPct(30); setTempPreFerment(20); setHeuresPreFerment(12); }
   }
 
+  const dureeBadgePain = `${heuresPointage} h pointage + ${heuresApprêt} h apprêt`;
+
   return (
     <div className="max-w-lg mx-auto px-4 py-5 space-y-4 pb-10">
 
-      <SectionHeureCuisson
-        heureCuisson={heureCuisson} setHeureCuisson={setHeureCuisson}
-        jourCuisson={jourCuisson}   setJourCuisson={setJourCuisson}
-      />
+      {/* ── Planification pain ── */}
+      <div className="bg-white rounded-3xl shadow-sm p-5">
+        <div className="flex gap-2 bg-gray-100 p-1 rounded-xl mb-5">
+          <button onClick={() => setModePlanif('duree')}
+            className={`flex-1 py-2.5 rounded-lg text-sm font-bold transition-all ${modePlanif === 'duree' ? 'bg-white text-green-700 shadow-sm' : 'text-gray-500'}`}>
+            ⏱ Durée libre
+          </button>
+          <button onClick={() => setModePlanif('planning')}
+            className={`flex-1 py-2.5 rounded-lg text-sm font-bold transition-all ${modePlanif === 'planning' ? 'bg-white text-orange-600 shadow-sm' : 'text-gray-500'}`}>
+            📅 Heure cible
+          </button>
+        </div>
+
+        {modePlanif === 'duree' && (
+          <div className="space-y-5">
+            <div>
+              <div className="flex justify-between items-baseline mb-2">
+                <span className="font-semibold text-gray-700">Durée du pointage</span>
+                <span className="text-4xl font-black text-green-600">{heuresPointage}<span className="text-lg font-semibold text-gray-400 ml-1">h</span></span>
+              </div>
+              <Curseur min={2} max={8} step={0.5} valeur={heuresPointage} onChange={setHeuresPointage}
+                accent="accent-green-500" etiquetteMin="2 h" etiquetteMax="8 h" />
+            </div>
+            <div>
+              <div className="flex justify-between items-baseline mb-2">
+                <span className="font-semibold text-gray-700">{frigoApprêt ? 'Durée apprêt frigo' : 'Durée apprêt'}</span>
+                <span className={`text-4xl font-black ${frigoApprêt ? 'text-cyan-600' : 'text-purple-600'}`}>
+                  {heuresApprêt}<span className="text-lg font-semibold text-gray-400 ml-1">h</span>
+                </span>
+              </div>
+              <Curseur
+                min={frigoApprêt ? 8 : 1} max={frigoApprêt ? 20 : 5} step={frigoApprêt ? 1 : 0.5}
+                valeur={heuresApprêt} onChange={setHeuresApprêt}
+                accent={frigoApprêt ? 'accent-cyan-500' : 'accent-purple-500'}
+                etiquetteMin={frigoApprêt ? '8 h' : '1 h'} etiquetteMax={frigoApprêt ? '20 h' : '5 h'}
+              />
+            </div>
+          </div>
+        )}
+
+        {modePlanif === 'planning' && (
+          <>
+            <p className="text-xs text-gray-400 mb-3">Toutes les étapes sont calculées à rebours depuis l'heure de cuisson.</p>
+            <div className="flex items-center justify-between px-4 py-2 rounded-xl bg-green-50 border border-green-200 mb-4">
+              <span className="text-sm text-green-700 font-semibold">🔒 Durées</span>
+              <span className="text-sm font-black text-green-700">{dureeBadgePain}</span>
+            </div>
+            <JoursChips jourCuisson={jourCuisson} setJourCuisson={setJourCuisson} />
+            <div className="flex items-center gap-3">
+              <input type="time" value={heureCuisson}
+                onChange={e => setHeureCuisson(e.target.value)}
+                className="flex-1 text-3xl font-black text-orange-500 border-2 border-orange-200 rounded-2xl px-4 py-3 outline-none bg-orange-50 text-center focus:border-orange-400"
+              />
+              {heureCuisson && (
+                <button onClick={() => setHeureCuisson('')}
+                  className="w-11 h-11 rounded-full bg-gray-100 text-gray-400 text-xl font-bold flex items-center justify-center active:bg-gray-200">×</button>
+              )}
+            </div>
+          </>
+        )}
+      </div>
 
       <SectionPlanning planning={planning} />
 
@@ -1162,47 +1254,22 @@ function PainCalculator() {
             accent="accent-red-500" etiquetteMin="18 °C" etiquetteMax="30 °C" />
         </div>
 
-        <div>
-          <div className="flex justify-between items-baseline mb-2">
-            <span className="font-semibold text-gray-700">Durée du pointage</span>
-            <span className="text-4xl font-black text-green-600">{heuresPointage}<span className="text-lg font-semibold text-gray-400 ml-1">h</span></span>
-          </div>
-          <Curseur min={2} max={8} step={0.5} valeur={heuresPointage} onChange={setHeuresPointage}
-            accent="accent-green-500" etiquetteMin="2 h" etiquetteMax="8 h" />
-        </div>
-
-        {/* Apprêt */}
-        <div>
-          <button
-            onClick={() => { setFrigoApprêt(f => !f); if (!frigoApprêt) setHeuresApprêt(12); else setHeuresApprêt(2); }}
-            className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl border-2 transition-all mb-4 ${
-              frigoApprêt ? 'bg-cyan-50 border-cyan-400 text-cyan-700' : 'bg-gray-50 border-gray-200 text-gray-500'
-            }`}>
-            <div className="flex items-center gap-2">
-              <span className="text-xl">🧊</span>
-              <div className="text-left">
-                <div className="font-bold text-sm">{frigoApprêt ? 'Apprêt au frigo (retardé)' : 'Apprêt à température ambiante'}</div>
-                <div className="text-xs opacity-70">{frigoApprêt ? 'Développe les arômes — incisez direct sorti du froid' : 'Cuisson le jour même'}</div>
-              </div>
+        <button
+          onClick={() => { setFrigoApprêt(f => !f); if (!frigoApprêt) setHeuresApprêt(12); else setHeuresApprêt(2); }}
+          className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl border-2 transition-all ${
+            frigoApprêt ? 'bg-cyan-50 border-cyan-400 text-cyan-700' : 'bg-gray-50 border-gray-200 text-gray-500'
+          }`}>
+          <div className="flex items-center gap-2">
+            <span className="text-xl">🧊</span>
+            <div className="text-left">
+              <div className="font-bold text-sm">{frigoApprêt ? 'Apprêt au frigo (retardé)' : 'Apprêt à température ambiante'}</div>
+              <div className="text-xs opacity-70">{frigoApprêt ? 'Développe les arômes — incisez direct sorti du froid' : 'Cuisson le jour même'}</div>
             </div>
-            <div className={`w-10 h-6 rounded-full transition-all flex items-center px-1 ${frigoApprêt ? 'bg-cyan-400' : 'bg-gray-300'}`}>
-              <div className={`w-4 h-4 rounded-full bg-white shadow transition-all ${frigoApprêt ? 'translate-x-4' : ''}`} />
-            </div>
-          </button>
-
-          <div className="flex justify-between items-baseline mb-2">
-            <span className="font-semibold text-gray-700">{frigoApprêt ? 'Durée apprêt frigo' : 'Durée apprêt'}</span>
-            <span className={`text-4xl font-black ${frigoApprêt ? 'text-cyan-600' : 'text-purple-600'}`}>
-              {heuresApprêt}<span className="text-lg font-semibold text-gray-400 ml-1">h</span>
-            </span>
           </div>
-          <Curseur
-            min={frigoApprêt ? 8 : 1} max={frigoApprêt ? 20 : 5} step={frigoApprêt ? 1 : 0.5}
-            valeur={heuresApprêt} onChange={setHeuresApprêt}
-            accent={frigoApprêt ? 'accent-cyan-500' : 'accent-purple-500'}
-            etiquetteMin={frigoApprêt ? '8 h' : '1 h'} etiquetteMax={frigoApprêt ? '20 h' : '5 h'}
-          />
-        </div>
+          <div className={`w-10 h-6 rounded-full transition-all flex items-center px-1 ${frigoApprêt ? 'bg-cyan-400' : 'bg-gray-300'}`}>
+            <div className={`w-4 h-4 rounded-full bg-white shadow transition-all ${frigoApprêt ? 'translate-x-4' : ''}`} />
+          </div>
+        </button>
       </div>
 
       {/* Résultats levain */}
